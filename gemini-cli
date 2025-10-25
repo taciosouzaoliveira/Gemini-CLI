@@ -1,0 +1,36 @@
+#!/bin/bash
+
+if [ -z "$GEMINI_API_KEY" ]; then
+    echo "Erro: A variável de ambiente GEMINI_API_KEY não está definida."
+    exit 1
+fi
+
+# Usando o modelo 'gemini-pro-latest' que foi validado via API
+API_URL="https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-latest:generateContent?key=${GEMINI_API_KEY}"
+
+if [ -t 0 ]; then
+    PROMPT="$@"
+else
+    PIPE_CONTENT=$(cat -)
+    PROMPT="Contexto (fornecido via pipe):
+---
+$PIPE_CONTENT
+---
+Tarefa: $@
+"
+fi
+
+if [ -z "$PROMPT" ]; then
+    echo "Uso: gemini-cli \"sua pergunta\""
+    echo "Ou: cat arquivo.txt | gemini-cli \"analise este texto\""
+    exit 1
+fi
+
+JSON_PAYLOAD=$(jq -n --arg prompt "$PROMPT" \
+  '{ "contents": [ { "parts": [ { "text": $prompt } ] } ] }')
+
+RESPONSE=$(curl -s -H "Content-Type: application/json" -d "$JSON_PAYLOAD" "$API_URL")
+
+TEXT_RESPONSE=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // .error.message')
+
+echo -e "$TEXT_RESPONSE"
