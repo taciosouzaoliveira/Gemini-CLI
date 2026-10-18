@@ -1,36 +1,49 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# gemini-cli: pergunte ao Google Gemini direto do terminal.
+#   gemini-cli "explique o comando ss -tulpn"
+#   cat /var/log/syslog | tail -50 | gemini-cli "resuma os erros"
+#
+# Requer: curl, jq e a variável GEMINI_API_KEY.
+# Opcional: GEMINI_MODEL (padrão abaixo). Veja os modelos da sua chave com:
+#   curl -s -H "x-goog-api-key: $GEMINI_API_KEY" https://generativelanguage.googleapis.com/v1beta/models | jq -r '.models[].name'
+set -euo pipefail
 
-if [ -z "$GEMINI_API_KEY" ]; then
-    echo "Erro: A variável de ambiente GEMINI_API_KEY não está definida."
-    exit 1
-fi
+MODEL="${GEMINI_MODEL:-gemini-2.5-flash}"
 
-# Usando o modelo 'gemini-pro-latest' que foi validado via API
-API_URL="https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-latest:generateContent?key=${GEMINI_API_KEY}"
+for dep in curl jq; do
+    command -v "$dep" >/dev/null || { echo "Erro: instale '$dep' (sudo apt install $dep)." >&2; exit 1; }
+done
+[ -n "${GEMINI_API_KEY:-}" ] || { echo "Erro: defina a variável GEMINI_API_KEY." >&2; exit 1; }
 
+TAREFA="$*"
 if [ -t 0 ]; then
-    PROMPT="$@"
+    PROMPT="$TAREFA"
 else
-    PIPE_CONTENT=$(cat -)
+    CONTEXTO="$(cat -)"
     PROMPT="Contexto (fornecido via pipe):
 ---
-$PIPE_CONTENT
+${CONTEXTO}
 ---
-Tarefa: $@
-"
+Tarefa: ${TAREFA}"
 fi
 
-if [ -z "$PROMPT" ]; then
-    echo "Uso: gemini-cli \"sua pergunta\""
-    echo "Ou: cat arquivo.txt | gemini-cli \"analise este texto\""
+if [ -z "$TAREFA" ]; then
+    echo "Uso: gemini-cli \"sua pergunta\"" >&2
+    echo "  ou: cat arquivo.txt | gemini-cli \"analise este texto\"" >&2
     exit 1
 fi
 
-JSON_PAYLOAD=$(jq -n --arg prompt "$PROMPT" \
-  '{ "contents": [ { "parts": [ { "text": $prompt } ] } ] }')
+PAYLOAD="$(jq -n --arg prompt "$PROMPT" '{contents: [{parts: [{text: $prompt}]}]}')"
 
-RESPONSE=$(curl -s -H "Content-Type: application/json" -d "$JSON_PAYLOAD" "$API_URL")
+# A chave vai no cabeçalho, não na URL: assim não aparece na lista de processos (ps) nem em logs.
+RESPOSTA="$(curl -sS --fail-with-body \
+    -H "Content-Type: application/json" \
+    -H "x-goog-api-key: ${GEMINI_API_KEY}" \
+    -d "$PAYLOAD" \
+    "https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent")" || {
+    echo "Erro na chamada à API:" >&2
+    echo "$RESPOSTA" | jq -r '.error.message // .' >&2
+    exit 1
+}
 
-TEXT_RESPONSE=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // .error.message')
-
-echo -e "$TEXT_RESPONSE"
+printf '%s\n' "$(echo "$RESPOSTA" | jq -r '.candidates[0].content.parts[0].text // .error.message // "Sem resposta."')"

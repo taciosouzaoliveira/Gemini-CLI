@@ -2,47 +2,20 @@
 
 Este projeto cria uma ferramenta de linha de comando (`gemini-cli`) que integra a poderosa API do Google Gemini diretamente ao seu terminal Linux. Em vez de alternar para um navegador, você pode gerar scripts, revisar código, entender comandos complexos e auditar sistemas em tempo real.
 
-### Código-Fonte (`gemini-cli`)
+### O script
 
-Abaixo está o conteúdo completo do script para referência.
+O código está em [`gemini-cli`](gemini-cli). Destaques:
+
+- **A chave da API vai no cabeçalho `x-goog-api-key`**, não na URL, então não aparece na lista de processos (`ps`) nem em logs.
+- O texto é montado com `jq`, então aspas, quebras de linha e caracteres especiais do prompt não quebram o JSON.
+- Aceita contexto por pipe: `cat log.txt | gemini-cli "resuma os erros"`.
+- Confere as dependências (`curl`, `jq`) e a variável `GEMINI_API_KEY` antes de chamar a API.
+- Modelo configurável por `GEMINI_MODEL` (padrão `gemini-2.5-flash`).
 
 ```bash
-#!/bin/bash
-
-if [ -z "$GEMINI_API_KEY" ]; then
-    echo "Erro: A variável de ambiente GEMINI_API_KEY não está definida."
-    exit 1
-fi
-
-# Usando o modelo 'gemini-pro-latest' que foi validado via API
-API_URL="[https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-latest:generateContent?key=$](https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-latest:generateContent?key=$){GEMINI_API_KEY}"
-
-if [ -t 0 ]; then
-    PROMPT="$@"
-else
-    PIPE_CONTENT=$(cat -)
-    PROMPT="Contexto (fornecido via pipe):
----
-$PIPE_CONTENT
----
-Tarefa: $@
-"
-fi
-
-if [ -z "$PROMPT" ]; then
-    echo "Uso: gemini-cli \"sua pergunta\""
-    echo "Ou: cat arquivo.txt | gemini-cli \"analise este texto\""
-    exit 1
-fi
-
-JSON_PAYLOAD=$(jq -n --arg prompt "$PROMPT" \
-  '{ "contents": [ { "parts": [ { "text": $prompt } ] } ] }')
-
-RESPONSE=$(curl -s -H "Content-Type: application/json" -d "$JSON_PAYLOAD" "$API_URL")
-
-TEXT_RESPONSE=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // .error.message')
-
-echo -e "$TEXT_RESPONSE"
+gemini-cli "explique o comando ss -tulpn"
+journalctl -p err -n 50 | gemini-cli "o que está falhando e como corrigir?"
+GEMINI_MODEL=gemini-2.5-pro gemini-cli "revise este script" < deploy.sh
 ```
 
 ### Instalação
@@ -54,14 +27,14 @@ Você pode instalar esta ferramenta de duas maneiras:
 Este comando baixa o script diretamente do seu repositório para `/usr/local/bin` e o torna executável.
 
 ```bash
-sudo curl -o /usr/local/bin/gemini-cli [https://raw.githubusercontent.com/taciosouzaoliveira/Gemini-CLI/main/gemini-cli](https://raw.githubusercontent.com/taciosouzaoliveira/Gemini-CLI/main/gemini-cli)
+sudo curl -o /usr/local/bin/gemini-cli https://raw.githubusercontent.com/taciosouzaoliveira/Gemini-CLI/main/gemini-cli
 sudo chmod +x /usr/local/bin/gemini-cli
 ```
 
 **Opção 2: Via `git clone` (Para desenvolvedores)**
 
 ```bash
-git clone [https://github.com/taciosouzaoliveira/Gemini-CLI.git](https://github.com/taciosouzaoliveira/Gemini-CLI.git)
+git clone https://github.com/taciosouzaoliveira/Gemini-CLI.git
 cd Gemini-CLI
 sudo cp gemini-cli /usr/local/bin/
 sudo chmod +x /usr/local/bin/gemini-cli
